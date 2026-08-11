@@ -128,6 +128,13 @@ export function useAutoSave({
 
       const currentNodeCount = Object.keys(nodes).length
       const previousNodeCount = storedNodeCount.count
+      if (currentNodeCount === 0) {
+        // A zero-node graph only exists transiently (before/after scene loads,
+        // during error recovery). Persisting it would wipe the stored scene.
+        console.warn('[autosave] Blocked: refusing to persist an empty scene graph.')
+        setSaveStatus('error')
+        return
+      }
       if (!storedNodeCount.allowWrite(currentNodeCount)) {
         console.warn(
           `[autosave] Blocked: scene dropped from ${previousNodeCount} to ${currentNodeCount} nodes. Likely accidental deletion.`,
@@ -222,6 +229,13 @@ export function useAutoSave({
     function flushOnExit() {
       if (!hasDirtyChangesRef.current) return
       const { nodes, rootNodeIds, collections, materials, installedPlugins } = useScene.getState()
+      if (Object.keys(nodes).length === 0) {
+        // Never flush an empty graph on unload — it only exists transiently
+        // during (re)loads and would wipe the stored scene.
+        console.warn('[autosave] Blocked unload flush of an empty scene graph.')
+        hasDirtyChangesRef.current = false
+        return
+      }
       const currentNodeCount = Object.keys(nodes).length
       const previousNodeCount = storedNodeCount.count
       if (!storedNodeCount.allowWrite(currentNodeCount)) {

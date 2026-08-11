@@ -1219,7 +1219,8 @@ export default function Editor({
           setIsViewerSceneReady(false)
           setSceneReadyKey((key) => key + 1)
         }
-      } catch {
+      } catch (error) {
+        console.error('[editor] Scene load failed; clearing editor scene', error)
         if (!cancelled) {
           applySceneGraphToEditor(null)
           setIsViewerSceneReady(false)
