@@ -2940,6 +2940,22 @@ export const CATALOG_ITEMS: CatalogItem[] = [
     rotation: [0, 0, 0],
     scale: [1, 1, 1],
   },
+  {
+    id: 'nanjing-shuzhicheng-a',
+    category: 'city',
+    name: '南京数智城A地块 建筑群',
+    tags: ['building', 'campus', 'city', 'tower', 'office', 'nanjing'],
+    thumbnail: '',
+    // Full URL: app-relative src would resolve onto ASSETS_CDN_URL
+    // (editor.pascal.app), where this local file does not exist.
+    src: 'http://localhost:3002/models/nanjing-shuzhicheng-a.glb',
+    dimensions: [94.7, 55, 97.7],
+    // asset.scale lifts the model (authored ~6.25× too small) to real meters;
+    // offset.y seats its ground plane (model y ≈ -2.05) at level zero.
+    offset: [0, 12.85, 0],
+    rotation: [0, 0, 0],
+    scale: [6.25, 6.25, 6.25],
+  },
 ]
 
 export function getDefaultCatalogItem(category: string | null | undefined): AssetInput | null {

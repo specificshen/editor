@@ -13,4 +13,5 @@ export const furnishTools: FurnishToolConfig[] = [
   { id: 'item', iconSrc: '/icons/kitchen.webp', label: 'Kitchen', catalogCategory: 'kitchen' },
   { id: 'item', iconSrc: '/icons/bathroom.webp', label: 'Bathroom', catalogCategory: 'bathroom' },
   { id: 'item', iconSrc: '/icons/tree.webp', label: 'Outdoor', catalogCategory: 'outdoor' },
+  { id: 'item', iconSrc: '/icons/building.webp', label: 'City', catalogCategory: 'city' },
 ]

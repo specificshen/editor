@@ -213,6 +213,7 @@ export type CatalogCategory =
   | 'bathroom'
   | 'kitchen'
   | 'outdoor'
+  | 'city'
   | 'window'
   | 'door'
 
