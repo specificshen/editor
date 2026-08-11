@@ -99,7 +99,7 @@
     },
     "packages/cli": {
       "name": "@pascal-app/cli",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "bin": {
         "pascal": "dist/bin/pascal.js",
       },
@@ -233,7 +233,7 @@
     },
     "packages/mcp": {
       "name": "@pascal-app/mcp",
-      "version": "1.0.0-beta.4",
+      "version": "1.0.0-beta.5",
       "bin": {
         "pascal-mcp": "./dist/bin/pascal-mcp.js",
       },
