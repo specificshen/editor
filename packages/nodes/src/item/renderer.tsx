@@ -19,12 +19,16 @@ import {
   useScene,
 } from '@pascal-app/core'
 import {
+  type CoatedGlassLayer,
   type ColorPreset,
+  coatedGlassLayersFromMaterial,
   configureKtx2Support,
+  createCoatedGlassMaterial,
   createDefaultMaterial,
   createSurfaceRoleMaterial,
   ErrorBoundary,
   glassMaterial,
+  isCoatedGlassMaterial,
   NodeRenderer,
   type RenderShading,
   resolveCdnUrl,
@@ -59,6 +63,7 @@ type CapturedSingleItemMaterialData = {
   captured: true
   authoredMaterials: Material
   curatedRefs: string | undefined
+  coatedGlassLayers: CoatedGlassLayer[] | null
   slotIds: string | null
 }
 
@@ -66,6 +71,7 @@ type CapturedMultiItemMaterialData = {
   captured: true
   authoredMaterials: Material[]
   curatedRefs: (string | undefined)[]
+  coatedGlassLayers: (CoatedGlassLayer[] | null)[]
   slotIds: (string | null)[]
 }
 
@@ -102,10 +108,12 @@ const captureItemMeshMaterials = (mesh: Mesh): CapturedItemMaterialData => {
     const authoredMaterials = mesh.material.slice()
     const slotIds = authoredMaterials.map(getAuthoredSlotId)
     const curatedRefs = authoredMaterials.map(curatedRefFromMaterial)
+    const coatedGlassLayers = authoredMaterials.map(coatedGlassLayersFromMaterial)
     const next: CapturedItemMaterialData = {
       captured: true,
       authoredMaterials,
       curatedRefs,
+      coatedGlassLayers,
       slotIds,
     }
     userData.pascalItemMaterialCapture = next
@@ -115,10 +123,12 @@ const captureItemMeshMaterials = (mesh: Mesh): CapturedItemMaterialData => {
 
   const slotId = getAuthoredSlotId(mesh.material)
   const curatedRef = curatedRefFromMaterial(mesh.material)
+  const coatedGlassLayers = coatedGlassLayersFromMaterial(mesh.material)
   const next: CapturedItemMaterialData = {
     captured: true,
     authoredMaterials: mesh.material,
     curatedRefs: curatedRef,
+    coatedGlassLayers,
     slotIds: slotId,
   }
   userData.pascalItemMaterialCapture = next
@@ -131,7 +141,9 @@ const isCapturedMaterialArray = (
 ): captured is CapturedMultiItemMaterialData => Array.isArray(captured.authoredMaterials)
 
 const isGlassMaterial = (material: Material): boolean =>
-  material === glassMaterial || material.name.toLowerCase() === 'glass'
+  material === glassMaterial ||
+  material.name.toLowerCase() === 'glass' ||
+  isCoatedGlassMaterial(material)
 
 const clampGeometryGroups = (mesh: Mesh, matCount: number): void => {
   if (mesh.geometry.groups.length === 0) return
@@ -153,6 +165,7 @@ const resolveItemMaterial = (
   authoredMaterial: Material,
   slotId: string | null,
   curatedRef: string | undefined,
+  coatedGlassLayers: CoatedGlassLayer[] | null,
   {
     colorPreset,
     nodeSlots,
@@ -169,6 +182,9 @@ const resolveItemMaterial = (
 ): Material => {
   // Monochrome (textures off): collapse to the themed furnishing clay colour.
   if (!textures) return createSurfaceRoleMaterial('furnishing', colorPreset)
+  // Coated glass declared via pascal_material layer-weight extras — more
+  // specific than the 'glass' name fallback, so it wins.
+  if (coatedGlassLayers) return createCoatedGlassMaterial(authoredMaterial, coatedGlassLayers)
   if (authoredMaterial.name.toLowerCase() === 'glass') return glassMaterial
   if (slotId != null) {
     const override = resolveMaterialRef(nodeSlots?.[slotId], sceneMaterials, shading)
@@ -638,6 +654,7 @@ const LoadedModelRenderer = ({
             authoredMaterial,
             captured.slotIds[index] ?? null,
             captured.curatedRefs[index],
+            captured.coatedGlassLayers[index] ?? null,
             materialOptions,
           ),
         )
@@ -649,6 +666,7 @@ const LoadedModelRenderer = ({
           captured.authoredMaterials,
           captured.slotIds,
           captured.curatedRefs,
+          captured.coatedGlassLayers,
           materialOptions,
         )
         mesh.material = nextMaterial

@@ -15,6 +15,7 @@ import { float, mix, positionViewDirection, transformedNormalView } from 'three/
 import { MeshLambertNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu'
 
 import { resolveCdnUrl } from './asset-url'
+import { clearCoatedGlassMaterialCache } from './coated-glass'
 import { isKtx2Url, ktx2Loader, whenKtx2Ready } from './ktx2-loader'
 import { getSceneTheme } from './scene-themes'
 import { stampPascalTextureRef } from './texture-reference'
@@ -784,6 +785,7 @@ export function clearMaterialCache(): void {
     material.dispose()
   }
   surfaceRoleMaterialCache.clear()
+  clearCoatedGlassMaterialCache()
 
   for (const texture of textureCache.values()) {
     texture.dispose()
