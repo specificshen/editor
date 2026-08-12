@@ -199,6 +199,7 @@ export function SettingsPanel({
   const resetSelection = useViewer((state) => state.resetSelection)
   const exportScene = useViewer((state) => state.exportScene)
   const glbCompression = useEditor((state) => state.glbCompression)
+  const isExporting = useViewer((state) => state.isExporting)
   const shadows = useViewer((state) => state.shadows)
   const setPhase = useEditor((state) => state.setPhase)
   const floorplanMode = useFloorplanMode((state) => state.mode)
@@ -410,27 +411,30 @@ export function SettingsPanel({
           <div className="font-medium text-muted-foreground text-xs">3D model</div>
           <Button
             className="w-full justify-start gap-2"
+            disabled={isExporting}
             onClick={() => exportScene?.('glb')}
             variant="outline"
           >
             <Download className="size-4" />
-            Export GLB
+            {isExporting ? 'Exporting...' : 'Export GLB'}
           </Button>
           <Button
             className="w-full justify-start gap-2"
+            disabled={isExporting}
             onClick={() => exportScene?.('stl')}
             variant="outline"
           >
             <Download className="size-4" />
-            Export STL
+            {isExporting ? 'Exporting...' : 'Export STL'}
           </Button>
           <Button
             className="w-full justify-start gap-2"
+            disabled={isExporting}
             onClick={() => exportScene?.('obj')}
             variant="outline"
           >
             <Download className="size-4" />
-            Export OBJ
+            {isExporting ? 'Exporting...' : 'Export OBJ'}
           </Button>
         </div>
 

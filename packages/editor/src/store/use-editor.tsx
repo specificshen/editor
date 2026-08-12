@@ -1488,6 +1488,7 @@ const useEditor = create<EditorState>()(
         showReferenceFloor: state.showReferenceFloor,
         referenceFloorOffset: state.referenceFloorOffset,
         referenceFloorOpacity: state.referenceFloorOpacity,
+        glbCompression: state.glbCompression,
       }),
       skipHydration: true,
     },
