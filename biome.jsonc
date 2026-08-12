@@ -107,6 +107,7 @@
       "!**/build",
       "!**/public",
       "!**/components/ui",
+      "!packages/editor/src/lib/vendor",
       "!**/next-env.d.ts"
     ]
   },

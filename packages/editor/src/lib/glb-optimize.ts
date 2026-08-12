@@ -23,8 +23,10 @@ const encoderModuleCache = new Map<string, Promise<unknown>>()
 async function getEncoderModule(wasmUrl: string): Promise<unknown> {
   const cached = encoderModuleCache.get(wasmUrl)
   if (cached) return cached
-  const { default: draco3dgltf } = await import('draco3dgltf')
-  const pending = draco3dgltf.createEncoderModule({ locateFile: () => wasmUrl })
+  // Vendored Emscripten glue — draco3dgltf's npm entry pulls require("fs") via
+  // its Node decoder glue, which turbopack can't bundle for the browser.
+  const { default: createEncoderModule } = await import('./vendor/draco-encoder-module.js')
+  const pending = createEncoderModule({ locateFile: () => wasmUrl })
   encoderModuleCache.set(wasmUrl, pending)
   return pending
 }
