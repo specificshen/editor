@@ -177,7 +177,7 @@ function VisibilityMenu({
 
 // One "Display" button gathering shadows, camera projection, colors, render
 // mode, scene theme and edges.
-function DisplayMenu() {
+export function DisplayMenu() {
   const cameraMode = useViewer((s) => s.cameraMode)
   const shading = useViewer((s) => s.shading)
   const textures = useViewer((s) => s.textures)

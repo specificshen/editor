@@ -7,6 +7,7 @@ import { useIsMobile } from './../../../hooks/use-mobile'
 import { useReducedMotion } from './../../../hooks/use-reduced-motion'
 import { cn } from './../../../lib/utils'
 import useEditor from './../../../store/use-editor'
+import { DisplayMenu } from '../../viewer/viewer-controls-bar'
 import { CameraActions } from './camera-actions'
 import { ControlModes } from './control-modes'
 import { SecondaryToggles } from './view-toggles'
@@ -69,6 +70,8 @@ export function ActionMenu({ className }: { className?: string }) {
             <SecondaryToggles />
             <div className="mx-1 h-5 w-px bg-border" />
             <CameraActions />
+            <div className="mx-1 h-5 w-px bg-border" />
+            <DisplayMenu />
           </div>
         )}
       </motion.div>
