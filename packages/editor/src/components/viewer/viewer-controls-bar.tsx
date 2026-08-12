@@ -2,6 +2,7 @@
 
 import { emitter } from '@pascal-app/core'
 import {
+  type AoEngine,
   CLAY_PALETTE,
   type EdgeMode,
   getSceneTheme,
@@ -25,6 +26,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  SunDim,
   SunMedium,
   SwatchBook,
 } from 'lucide-react'
@@ -85,6 +87,11 @@ const TONE_MAPPING_OPTIONS = [
   { id: 'agx', name: 'AgX', detail: 'Softer rolloff, keeps saturated brights' },
   { id: 'neutral', name: 'Neutral', detail: 'Minimal, true-to-source color' },
 ] as const satisfies readonly { id: ToneMapping; name: string; detail: string }[]
+
+const AO_ENGINE_OPTIONS = [
+  { id: 'ssgi', name: 'SSGI', detail: 'Screen-space AO with bounce light' },
+  { id: 'gtao', name: 'GTAO', detail: 'Crisper contact shadows, occlusion only' },
+] as const satisfies readonly { id: AoEngine; name: string; detail: string }[]
 
 // Keep the dropdown open when flipping an in-place toggle row.
 const keepOpen = (event: Event, fn: () => void) => {
@@ -165,6 +172,8 @@ function DisplayMenu() {
   const activeEdges = EDGE_OPTIONS.find((o) => o.id === edges) ?? EDGE_OPTIONS[0]
   const activeToneMapping =
     TONE_MAPPING_OPTIONS.find((o) => o.id === toneMapping) ?? TONE_MAPPING_OPTIONS[0]
+  const aoEngine = useViewer((s) => s.aoEngine)
+  const activeAoEngine = AO_ENGINE_OPTIONS.find((o) => o.id === aoEngine) ?? AO_ENGINE_OPTIONS[0]
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -265,6 +274,30 @@ function DisplayMenu() {
                   <span className="text-muted-foreground text-xs">{option.detail}</span>
                 </div>
                 {toneMapping === option.id ? (
+                  <Check className="ml-auto h-4 w-4 text-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <SunDim className="h-4 w-4" />
+            <span>Ambient occlusion</span>
+            <span className="ml-auto text-muted-foreground text-xs">{activeAoEngine.name}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-56">
+            {AO_ENGINE_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.id}
+                onSelect={() => useViewer.getState().setAoEngine(option.id)}
+              >
+                <div className="flex flex-col">
+                  <span className="text-foreground">{option.name}</span>
+                  <span className="text-muted-foreground text-xs">{option.detail}</span>
+                </div>
+                {aoEngine === option.id ? (
                   <Check className="ml-auto h-4 w-4 text-foreground" />
                 ) : null}
               </DropdownMenuItem>

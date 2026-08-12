@@ -163,6 +163,7 @@ export {
 export { packNormalToRGB, unpackRGBToNormal } from './lib/tsl-compat'
 export { useItemLightPool } from './store/use-item-light-pool'
 export {
+  type AoEngine,
   applyCountryUnitDefault,
   default as useViewer,
   type MetricNotation,

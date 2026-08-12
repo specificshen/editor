@@ -2,6 +2,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Color, Layers, Matrix4, type Object3D, Scene, UnsignedByteType } from 'three'
 import { bloom } from 'three/addons/tsl/display/BloomNode.js'
+import { ao as gtao } from 'three/addons/tsl/display/GTAONode.js'
 import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
 import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 import {
@@ -21,6 +22,8 @@ import {
   smoothstep,
   time,
   uniform,
+  uv,
+  vec2,
   vec4,
 } from 'three/tsl'
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu'
@@ -63,6 +66,15 @@ export const SSGI_PARAMS = {
   useLinearThickness: false,
   useScreenSpaceSampling: true,
   useTemporalFiltering: false,
+}
+
+// GTAO — the alternate AO engine (three's GTAONode). Full-res 16-sample march
+// gives crisper contact shadows than SSGI's slice march; prism's cross filter
+// stands in for the denoise pass this engine doesn't get.
+export const GTAO_PARAMS = {
+  radius: 0.5,
+  samples: 16,
+  resolutionScale: 1,
 }
 
 // Diagnostic toggles for thermal A/B testing. Add `?disable=ao,denoise,outline,postFx`
@@ -255,6 +267,7 @@ const PostProcessingPasses = ({
   const bloomEnabled = useViewer((s) => s.bloom)
   const bloomStrength = useViewer((s) => s.bloomStrength)
   const toneMapping = useViewer((s) => s.toneMapping)
+  const aoEngine = useViewer((s) => s.aoEngine)
   const grading = useViewer((s) => s.grading)
   const lastProjectIdRef = useRef(projectId)
 
@@ -377,6 +390,7 @@ const PostProcessingPasses = ({
     console.log('[viewer/post-processing] Building pipeline', {
       version: pipelineVersion,
       ssgi: ssgiEnabled,
+      aoEngine,
       denoise: denoiseEnabled,
       outline: outlineEnabled,
       bloom: bloomEnabled,
@@ -470,37 +484,67 @@ const PostProcessingPasses = ({
         const diffuseTexture = scenePass.getTexture('diffuseColor')
         diffuseTexture.type = UnsignedByteType
 
-        const giPass = ssgi(scenePassColor, scenePassDepth, sceneNormal, camera as any)
-        giPass.sliceCount.value = SSGI_PARAMS.sliceCount
-        giPass.stepCount.value = SSGI_PARAMS.stepCount
-        giPass.radius.value = SSGI_PARAMS.radius
-        giPass.expFactor.value = SSGI_PARAMS.expFactor
-        giPass.thickness.value = SSGI_PARAMS.thickness
-        giPass.backfaceLighting.value = SSGI_PARAMS.backfaceLighting
-        giPass.aoIntensity.value = SSGI_PARAMS.aoIntensity
-        giPass.giIntensity.value = SSGI_PARAMS.giIntensity
-        giPass.useLinearThickness.value = SSGI_PARAMS.useLinearThickness
-        giPass.useScreenSpaceSampling.value = SSGI_PARAMS.useScreenSpaceSampling
-        giPass.useTemporalFiltering = SSGI_PARAMS.useTemporalFiltering
-
-        // r185: SSGI renders AO and GI into two separate textures (R8 + RG11B10)
-        // exposed via getAONode()/getGINode() instead of one rgba texture.
-        const aoTexture = (giPass as any).getAONode()
-
-        const gi = (giPass as any).getGINode().rgb
         let ao: any
-        if (denoiseEnabled) {
-          // DenoiseNode only denoises RGB — alpha is passed through unchanged.
-          // SSGI's AO is a single red channel, so we remap it into RGB before denoising.
-          const aoAsRgb = vec4(aoTexture.r, aoTexture.r, aoTexture.r, float(1))
-          const denoisePass = denoise(aoAsRgb, scenePassDepth, sceneNormal, camera)
-          denoisePass.index.value = 0
-          denoisePass.radius.value = 4
-          ao = (denoisePass as any).r
+        // Bounce light only exists on the SSGI engine — GTAO is pure occlusion.
+        let gi: any = null
+
+        if (aoEngine === 'gtao') {
+          // GTAONode samples its normal input at arbitrary offsets, so it needs
+          // something .sample()-able. Our shared normal MRT is a packed byte
+          // texture (ink/SSGI consume the unpacked form) — unwrap per sample
+          // instead of spending a second MRT attachment.
+          const gtaoNormals = {
+            sample: (sampleUv: any) => unpackRGBToNormal(scenePassNormal.sample(sampleUv)),
+          }
+          const gtaoPass = gtao(scenePassDepth, gtaoNormals as any, camera as any)
+          gtaoPass.resolutionScale = GTAO_PARAMS.resolutionScale
+          gtaoPass.radius.value = GTAO_PARAMS.radius
+          gtaoPass.samples.value = GTAO_PARAMS.samples
+          // Stochastic sampling leaves a faint screen pattern when composited
+          // raw — prism's compact cross filter (center ×4, neighbours ×1, ÷8)
+          // cleans it without a full denoise pass.
+          const gtaoTexture = gtaoPass.getTextureNode()
+          const gtaoTexel = vec2(1).div(gtaoPass.resolution)
+          ao = gtaoTexture
+            .sample(uv())
+            .r.mul(4)
+            .add(gtaoTexture.sample(uv().add(gtaoTexel.mul(vec2(1, 0)))).r)
+            .add(gtaoTexture.sample(uv().add(gtaoTexel.mul(vec2(-1, 0)))).r)
+            .add(gtaoTexture.sample(uv().add(gtaoTexel.mul(vec2(0, 1)))).r)
+            .add(gtaoTexture.sample(uv().add(gtaoTexel.mul(vec2(0, -1)))).r)
+            .div(8)
         } else {
-          // Diagnostic path: feed raw noisy SSGI AO straight through. Will
-          // look grainy — that's the point, it isolates denoise cost.
-          ao = aoTexture.r
+          const giPass = ssgi(scenePassColor, scenePassDepth, sceneNormal, camera as any)
+          giPass.sliceCount.value = SSGI_PARAMS.sliceCount
+          giPass.stepCount.value = SSGI_PARAMS.stepCount
+          giPass.radius.value = SSGI_PARAMS.radius
+          giPass.expFactor.value = SSGI_PARAMS.expFactor
+          giPass.thickness.value = SSGI_PARAMS.thickness
+          giPass.backfaceLighting.value = SSGI_PARAMS.backfaceLighting
+          giPass.aoIntensity.value = SSGI_PARAMS.aoIntensity
+          giPass.giIntensity.value = SSGI_PARAMS.giIntensity
+          giPass.useLinearThickness.value = SSGI_PARAMS.useLinearThickness
+          giPass.useScreenSpaceSampling.value = SSGI_PARAMS.useScreenSpaceSampling
+          giPass.useTemporalFiltering = SSGI_PARAMS.useTemporalFiltering
+
+          // r185: SSGI renders AO and GI into two separate textures (R8 + RG11B10)
+          // exposed via getAONode()/getGINode() instead of one rgba texture.
+          const aoTexture = (giPass as any).getAONode()
+
+          gi = (giPass as any).getGINode().rgb
+          if (denoiseEnabled) {
+            // DenoiseNode only denoises RGB — alpha is passed through unchanged.
+            // SSGI's AO is a single red channel, so we remap it into RGB before denoising.
+            const aoAsRgb = vec4(aoTexture.r, aoTexture.r, aoTexture.r, float(1))
+            const denoisePass = denoise(aoAsRgb, scenePassDepth, sceneNormal, camera)
+            denoisePass.index.value = 0
+            denoisePass.radius.value = 4
+            ao = (denoisePass as any).r
+          } else {
+            // Diagnostic path: feed raw noisy SSGI AO straight through. Will
+            // look grainy — that's the point, it isolates denoise cost.
+            ao = aoTexture.r
+          }
         }
 
         // AO is a near/mid-field cue like the ink: fade it out with raw depth
@@ -514,9 +558,12 @@ const PostProcessingPasses = ({
         )
         ao = mix(ao, float(1), aoFarFade)
 
-        // Composite: scene * AO + diffuse * GI
+        // Composite: scene * AO (+ zone tint and diffuse * GI when available)
         sceneColor = vec4(
-          add(scenePassColor.rgb.mul(ao), add(zonePass.rgb, scenePassDiffuse.rgb.mul(gi))),
+          add(
+            scenePassColor.rgb.mul(ao),
+            gi ? add(zonePass.rgb, scenePassDiffuse.rgb.mul(gi)) : zonePass.rgb,
+          ),
           contentAlpha,
         )
       }
@@ -686,6 +733,7 @@ const PostProcessingPasses = ({
     // whole pipeline. `grading` follows the same uniform rule. The uniform
     // refs below are stable (useMemo), so they never trigger a rebuild either.
     camera,
+    aoEngine,
     bloomEnabled,
     bloomStrength,
     disablePostFx,

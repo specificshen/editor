@@ -13,6 +13,7 @@ import { SCENE_THEME_IDS } from '../lib/scene-themes'
 export type RenderContext = 'editor' | 'viewer'
 export type MetricNotation = 'meters' | 'millimeters'
 export type ToneMapping = 'aces' | 'agx' | 'neutral'
+export type AoEngine = 'ssgi' | 'gtao'
 export type WallMode = 'up' | 'cutaway' | 'down' | 'translucent'
 
 type SelectionPath = {
@@ -87,6 +88,9 @@ type ViewerState = {
 
   toneMapping: ToneMapping
   setToneMapping: (toneMapping: ToneMapping) => void
+
+  aoEngine: AoEngine
+  setAoEngine: (engine: AoEngine) => void
 
   bloom: boolean
   setBloom: (enabled: boolean) => void
@@ -203,6 +207,7 @@ type PersistedViewerState = Partial<
     | 'edges'
     | 'shadows'
     | 'toneMapping'
+    | 'aoEngine'
     | 'bloom'
     | 'bloomStrength'
     | 'grading'
@@ -224,6 +229,7 @@ const METRIC_NOTATIONS = ['meters', 'millimeters'] as const
 const LEVEL_MODES = ['stacked', 'exploded', 'solo', 'manual'] as const
 const WALL_MODES = ['up', 'cutaway', 'down', 'translucent'] as const
 const TONE_MAPPINGS = ['aces', 'agx', 'neutral'] as const
+const AO_ENGINES = ['ssgi', 'gtao'] as const
 
 // Countries still on imperial/US customary units: United States, Liberia, Myanmar.
 const IMPERIAL_REGIONS = ['US', 'LR', 'MM']
@@ -349,6 +355,7 @@ function normalizePersistedViewerState(value: unknown): PersistedViewerState {
     edges: pickString<EdgeMode>(state.edges, EDGE_MODES, 'soft'),
     shadows: typeof state.shadows === 'boolean' ? state.shadows : true,
     toneMapping: pickString<ToneMapping>(state.toneMapping, TONE_MAPPINGS, 'aces'),
+    aoEngine: pickString<AoEngine>(state.aoEngine, AO_ENGINES, 'ssgi'),
     bloom: typeof state.bloom === 'boolean' ? state.bloom : false,
     bloomStrength:
       typeof state.bloomStrength === 'number' ? Math.min(Math.max(state.bloomStrength, 0), 2) : 0.5,
@@ -438,6 +445,9 @@ const useViewer = create<ViewerState>()(
 
       toneMapping: 'aces',
       setToneMapping: (toneMapping) => set({ toneMapping }),
+
+      aoEngine: 'ssgi',
+      setAoEngine: (aoEngine) => set({ aoEngine }),
 
       bloom: false,
       setBloom: (bloom) => set({ bloom }),
@@ -605,6 +615,7 @@ const useViewer = create<ViewerState>()(
         edges: state.edges,
         shadows: state.shadows,
         toneMapping: state.toneMapping,
+        aoEngine: state.aoEngine,
         bloom: state.bloom,
         bloomStrength: state.bloomStrength,
         grading: state.grading,
