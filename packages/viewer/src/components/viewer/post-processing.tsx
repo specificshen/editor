@@ -27,9 +27,10 @@ import {
   vec4,
 } from 'three/tsl'
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu'
-import { backdropGradient, deepSkyColor, horizonHazeColor } from '../../lib/backdrop'
+import { deepSkyColor, horizonHazeColor } from '../../lib/backdrop'
 import { applyColorGrading } from '../../lib/color-grading'
 import { edgeColorFor, edgeOpacityScaleFor } from '../../lib/edge-style'
+import { environmentBackdropNode } from '../../lib/environment-backdrop'
 import { PERF_OVERLAY_ENABLED, pushGpuSample } from '../../lib/gpu-perf'
 import { inkedEdges } from '../../lib/ink-edges'
 import { GRID_LAYER, OVERLAY_LAYER, SCENE_LAYER, ZONE_LAYER } from '../../lib/layers'
@@ -269,6 +270,10 @@ const PostProcessingPasses = ({
   const toneMapping = useViewer((s) => s.toneMapping)
   const aoEngine = useViewer((s) => s.aoEngine)
   const grading = useViewer((s) => s.grading)
+  const environmentMode = useViewer((s) => s.environmentMode)
+  // Rebuild trigger only: the HDRI texture lands after the pipeline was built
+  // on the gradient fallback, so scene-environment bumps this on load.
+  const environmentVersion = useViewer((s) => s.environmentVersion)
   const lastProjectIdRef = useRef(projectId)
 
   // Bump this to force a pipeline rebuild (used by retry logic)
@@ -395,6 +400,8 @@ const PostProcessingPasses = ({
       outline: outlineEnabled,
       bloom: bloomEnabled,
       toneMapping,
+      environmentMode,
+      environmentVersion,
       perfDisable,
       projectId,
       shading,
@@ -442,13 +449,16 @@ const PostProcessingPasses = ({
       const overlayColor = overlayPass.getTextureNode('output')
 
       const scenePassColor = scenePass.getTextureNode('output')
+      const scenePassDepth = scenePass.getTextureNode('depth')
 
-      // Background detection via alpha: renderer clears with alpha=0 (setClearAlpha(0) in useFrame),
-      // so background pixels have scenePassColor.a=0 while geometry pixels have output.a=1.
-      // WebGPU only applies clearColorValue to MRT attachment 0 (output), so scenePassColor.a
-      // is the reliable geometry mask — no normals, no flicker.
-      const hasGeometry = scenePassColor.a
-      const contentAlpha = hasGeometry.max(zonePass.a)
+      // Background detection via alpha: passes render with renderer.autoClear,
+      // so the scene target clears to the renderer's clear alpha — useFrame
+      // forces it to 0 before pipeline.render(), leaving a=0 on sky pixels and
+      // a=1 wherever opaque geometry wrote. (The pass depth texture was tried
+      // first: sampled from the final composite it returns an unbound/garbage
+      // value that changes between pipeline builds — 0.0 on some, 1.0 on
+      // others — which is why the backdrop flickered in and out per session.)
+      const contentAlpha = scenePassColor.a.max(zonePass.a)
 
       // Composite the zone-pass tint into the base scene so rooms show whether or
       // not SSGI is enabled. When SSGI is on, the branch below overwrites this
@@ -460,7 +470,6 @@ const PostProcessingPasses = ({
 
       // Depth + normal MRT — shared by SSGI (diffuse/normal) and the ink pass
       // (depth/normal). Built whenever either is active.
-      let scenePassDepth: any = null
       let scenePassNormal: any = null
       let sceneNormal: any = null
       if (needsNormalMRT) {
@@ -471,7 +480,10 @@ const PostProcessingPasses = ({
             normal: packNormalToRGB(normalView),
           }),
         )
-        scenePassDepth = scenePass.getTextureNode('depth')
+        // The backend binds attachments by renderTarget.textures array order —
+        // request them in the mrt() key order or diffuse/normal land in each
+        // other's textures.
+        scenePass.getTextureNode('diffuseColor')
         scenePassNormal = scenePass.getTextureNode('normal')
         const normalTexture = scenePass.getTexture('normal')
         normalTexture.type = UnsignedByteType
@@ -659,10 +671,10 @@ const PostProcessingPasses = ({
         )
       }
 
-      // Backdrop: world-space view ray per pixel → background / horizon haze /
-      // sky gradient (shared formula in lib/backdrop.ts). The horizon disc
-      // dissolves into the same formula, so backdrop and ground meet
-      // seamlessly exactly where the disc vanishes.
+      // Backdrop: world-space view ray per pixel → the environment backdrop
+      // (theme gradient / procedural sky / HDRI — lib/environment-backdrop.ts).
+      // The horizon disc dissolves into the same formula, so backdrop and
+      // ground meet seamlessly exactly where the disc vanishes.
       const ndc = vec4(
         screenUV.x.mul(2).sub(1),
         float(1).sub(screenUV.y).mul(2).sub(1),
@@ -671,12 +683,15 @@ const PostProcessingPasses = ({
       ) as any
       const viewRay = (camProjInvUniform.current as any).mul(ndc)
       const worldDir = (camWorldUniform.current as any).mul(vec4(viewRay.xyz, 0)).xyz.normalize()
-      let bgGradient = backdropGradient({
-        dirY: worldDir.y,
-        background: bgUniform.current,
-        haze: bgHazeUniform.current,
-        sky: bgSkyUniform.current,
-        skyDeep: bgSkyDeepUniform.current,
+      let bgGradient = environmentBackdropNode({
+        mode: environmentMode,
+        dir: worldDir,
+        gradient: {
+          background: bgUniform.current,
+          haze: bgHazeUniform.current,
+          sky: bgSkyUniform.current,
+          skyDeep: bgSkyDeepUniform.current,
+        },
       })
       if (shading === 'rendered') {
         bgGradient = gradeRgb(bgGradient)
@@ -737,6 +752,8 @@ const PostProcessingPasses = ({
     bloomEnabled,
     bloomStrength,
     disablePostFx,
+    environmentMode,
+    environmentVersion,
     hoverHiddenColor,
     hoverPulseMix,
     hoverStrength,
@@ -836,8 +853,10 @@ const PostProcessingPasses = ({
     }
 
     try {
-      // Clear alpha=0 so background pixels in the output MRT attachment (index 0) get a=0,
-      // making scenePassColor.a a reliable geometry mask (geometry pixels write a=1 via output node).
+      // Passes render with renderer.autoClear and inherit the renderer's clear
+      // alpha. Force it to 0 so the scene/zone targets clear transparent: the
+      // composite above reads the scene pass's alpha channel as the
+      // geometry-vs-background mask (see contentAlpha).
       ;(renderer as any).setClearAlpha(0)
       const submittedAt = PERF_OVERLAY_ENABLED ? performance.now() : 0
       renderPipelineRef.current.render()

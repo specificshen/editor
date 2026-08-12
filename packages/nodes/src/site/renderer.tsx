@@ -11,8 +11,8 @@ import {
   useScene,
 } from '@pascal-app/core'
 import {
-  backdropGradient,
   deepSkyColor,
+  environmentBackdropNode,
   getSceneTheme,
   horizonHazeColor,
   NodeRenderer,
@@ -137,6 +137,10 @@ export const SiteRenderer = ({ node }: { node: SiteNode }) => {
     return theme.backgroundSky ?? theme.background
   })
   const appearance = useViewer((state) => getSceneTheme(state.sceneTheme).appearance)
+  const environmentMode = useViewer((state) => state.environmentMode)
+  // Rebuild trigger only: the horizon disc bakes the backdrop into its node
+  // graph, so the HDRI texture arriving (version bump) must rebuild it.
+  const environmentVersion = useViewer((state) => state.environmentVersion)
   const maxLightIntensity = useViewer((state) =>
     Math.max(1, ...getSceneTheme(state.sceneTheme).lights.map((light) => light.intensity)),
   )
@@ -195,6 +199,7 @@ export const SiteRenderer = ({ node }: { node: SiteNode }) => {
   // theme ground colour, fading radially into the theme background so the
   // scene sits on an "infinite" plane that dissolves into the sky instead of
   // a hard-edged plate floating on the backdrop. Never pickable.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `environmentVersion` is the rebuild trigger for the HDRI texture arriving after this material was built on the gradient fallback — it is not read in the body.
   const horizonMaterial = useMemo(() => {
     if (!fadeBounds) return null
     const material = new MeshLambertNodeMaterial({ color: bgColor })
@@ -213,17 +218,20 @@ export const SiteRenderer = ({ node }: { node: SiteNode }) => {
     const haloFactor = float(1).sub(halo)
     material.colorNode = mix(color(bgColor), color('#000000'), fade).mul(haloFactor)
     // Dissolve, not tint: the albedo (lighting response, incl. shadows) fades
-    // to black while an emissive term fades up to the backdrop gradient — the
-    // exact formula the post pipeline composites (viewer lib/backdrop.ts),
+    // to black while an emissive term fades up to the environment backdrop —
+    // the exact node the post pipeline composites (lib/environment-backdrop.ts),
     // evaluated with this fragment's view direction, so the far end is
     // literally the backdrop (incl. the horizon haze) from any camera pose.
-    const viewDirY = positionWorld.sub(cameraPosition).normalize().y
-    const backdrop = backdropGradient({
-      dirY: viewDirY,
-      background: color(backgroundColor),
-      haze: color(horizonHazeColor(skyColor, appearance)),
-      sky: color(skyColor),
-      skyDeep: color(deepSkyColor(skyColor)),
+    const viewDir = positionWorld.sub(cameraPosition).normalize()
+    const backdrop = environmentBackdropNode({
+      mode: environmentMode,
+      dir: viewDir,
+      gradient: {
+        background: color(backgroundColor),
+        haze: color(horizonHazeColor(skyColor, appearance)),
+        sky: color(skyColor),
+        skyDeep: color(deepSkyColor(skyColor)),
+      },
     })
     // The halo also scales the in-band emissive: the dissolve starts at 1.05R,
     // so without it the (bright) backdrop dilutes the vignette exactly where
@@ -238,7 +246,16 @@ export const SiteRenderer = ({ node }: { node: SiteNode }) => {
     material.polygonOffsetFactor = 2
     material.polygonOffsetUnits = 2
     return material
-  }, [bgColor, backgroundColor, skyColor, appearance, maxLightIntensity, fadeBounds])
+  }, [
+    bgColor,
+    backgroundColor,
+    skyColor,
+    appearance,
+    maxLightIntensity,
+    fadeBounds,
+    environmentMode,
+    environmentVersion,
+  ])
 
   // Cache computed polygons to keep the selector stable across unrelated store updates.
   const slabPolygonsCache = useRef<[number, number][][]>([])

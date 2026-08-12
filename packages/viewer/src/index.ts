@@ -74,6 +74,7 @@ export {
   SUBTRACTION,
 } from './lib/csg-utils'
 export type { EdgeMode } from './lib/edge-style'
+export { type EnvironmentMode, environmentBackdropNode } from './lib/environment-backdrop'
 export {
   computeHeroFraming,
   DEFAULT_FRAMING_EXCLUDED_TYPES,

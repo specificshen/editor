@@ -23,9 +23,10 @@ import {
 import { RenderPipeline, RenderTarget, type WebGPURenderer } from 'three/webgpu'
 import { GTAO_PARAMS, SSGI_PARAMS } from '../components/viewer/post-processing'
 import useViewer from '../store/use-viewer'
-import { backdropGradient, deepSkyColor, horizonHazeColor } from './backdrop'
+import { deepSkyColor, horizonHazeColor } from './backdrop'
 import { applyColorGrading, DEFAULT_GRADING } from './color-grading'
 import { type EdgeMode, edgeColorFor, edgeOpacityScaleFor } from './edge-style'
+import { environmentBackdropNode } from './environment-backdrop'
 import { inkedEdges } from './ink-edges'
 import { getSceneTheme } from './scene-themes'
 import { packNormalToRGB, unpackRGBToNormal } from './tsl-compat'
@@ -138,6 +139,10 @@ export async function createSnapshotPipeline({
 
     const scenePassColor = scenePass.getTextureNode('output')
     const scenePassDepth = scenePass.getTextureNode('depth')
+    // Request MRT textures in the mrt() key order — the backend binds
+    // attachments by renderTarget.textures array order, so asking for 'normal'
+    // before 'diffuseColor' swaps their contents.
+    scenePass.getTextureNode('diffuseColor')
     const scenePassNormal = scenePass.getTextureNode('normal')
 
     scenePass.getTexture('diffuseColor').type = UnsignedByteType
@@ -224,20 +229,29 @@ export async function createSnapshotPipeline({
       })
     const sceneRgb = mix(ungradedSceneRgb, gradeRgb(ungradedSceneRgb), gradeMixUniform)
 
-    // Per-pixel world ray from the capture camera → sky gradient above the
-    // horizon (dir.y = 0), flat background below — mirrors the viewport
-    // backdrop. bgMix 0 bypasses it and keeps the capture transparent.
+    // Per-pixel world ray from the capture camera → the environment backdrop
+    // (theme gradient / procedural sky / HDRI), mirroring the viewport.
+    // bgMix 0 bypasses it and keeps the capture transparent. The mode is read
+    // once at pipeline creation (same policy as the AO engine above).
+    const environmentMode = useViewer.getState().environmentMode
     const ndc = vec4(screenUV.x.mul(2).sub(1), float(1).sub(screenUV.y).mul(2).sub(1), 1, 1) as any
     const viewRay = (bgProjInvUniform as any).mul(ndc)
     const worldDir = (bgCamWorldUniform as any).mul(vec4(viewRay.xyz, 0)).xyz.normalize()
-    const ungradedBgGradient = backdropGradient({
-      dirY: worldDir.y,
-      background: bgColorUniform,
-      haze: bgHazeUniform,
-      sky: bgSkyUniform,
-      skyDeep: bgSkyDeepUniform,
+    const ungradedBgGradient = environmentBackdropNode({
+      mode: environmentMode,
+      dir: worldDir,
+      gradient: {
+        background: bgColorUniform,
+        haze: bgHazeUniform,
+        sky: bgSkyUniform,
+        skyDeep: bgSkyDeepUniform,
+      },
     })
     const bgGradient = mix(ungradedBgGradient, gradeRgb(ungradedBgGradient), gradeMixUniform)
+    // Alpha-based geometry mask: the capture clears the pass target with
+    // alpha 0 (see setClearAlpha below), so only real fragments pull this to 1.
+    // (Sampling the pass depth texture here returned an unbound/garbage value
+    // that changed between pipeline builds — same lesson as the viewport.)
     const alpha = scenePassColor.a
     const finalOutput = vec4(
       mix(sceneRgb, mix(bgGradient, sceneRgb, alpha), bgMixUniform),

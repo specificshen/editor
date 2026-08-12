@@ -5,6 +5,7 @@ import {
   type AoEngine,
   CLAY_PALETTE,
   type EdgeMode,
+  type EnvironmentMode,
   getSceneTheme,
   SCENE_THEMES,
   type ToneMapping,
@@ -19,8 +20,10 @@ import {
   Eye,
   EyeOff,
   Footprints,
+  Globe,
   Layers,
   Layers2,
+  Link2,
   Palette,
   PenLine,
   SlidersHorizontal,
@@ -28,6 +31,7 @@ import {
   Square,
   SunDim,
   SunMedium,
+  Sunrise,
   SwatchBook,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -92,6 +96,21 @@ const AO_ENGINE_OPTIONS = [
   { id: 'ssgi', name: 'SSGI', detail: 'Screen-space AO with bounce light' },
   { id: 'gtao', name: 'GTAO', detail: 'Crisper contact shadows, occlusion only' },
 ] as const satisfies readonly { id: AoEngine; name: string; detail: string }[]
+
+const ENVIRONMENT_OPTIONS = [
+  { id: 'gradient', name: 'Gradient', detail: 'Theme sky gradient — fast, no network' },
+  { id: 'sky', name: 'Procedural sky', detail: 'Physically-based sun and atmosphere' },
+  { id: 'hdri', name: 'HDRI', detail: 'Image-based lighting from an HDR file' },
+] as const satisfies readonly { id: EnvironmentMode; name: string; detail: string }[]
+
+// Sun-angle presets for the procedural sky (elevation / azimuth in degrees;
+// azimuth 0° = north, clockwise).
+const SUN_PRESETS = [
+  { id: 'morning', name: 'Morning', elevation: 25, azimuth: 70 },
+  { id: 'noon', name: 'Noon', elevation: 65, azimuth: 180 },
+  { id: 'afternoon', name: 'Afternoon', elevation: 35, azimuth: 250 },
+  { id: 'sunset', name: 'Sunset', elevation: 8, azimuth: 285 },
+] as const
 
 // Keep the dropdown open when flipping an in-place toggle row.
 const keepOpen = (event: Event, fn: () => void) => {
@@ -174,6 +193,14 @@ function DisplayMenu() {
     TONE_MAPPING_OPTIONS.find((o) => o.id === toneMapping) ?? TONE_MAPPING_OPTIONS[0]
   const aoEngine = useViewer((s) => s.aoEngine)
   const activeAoEngine = AO_ENGINE_OPTIONS.find((o) => o.id === aoEngine) ?? AO_ENGINE_OPTIONS[0]
+  const environmentMode = useViewer((s) => s.environmentMode)
+  const sunElevation = useViewer((s) => s.sunElevation)
+  const sunAzimuth = useViewer((s) => s.sunAzimuth)
+  const activeEnvironment =
+    ENVIRONMENT_OPTIONS.find((o) => o.id === environmentMode) ?? ENVIRONMENT_OPTIONS[0]
+  const activeSunPreset = SUN_PRESETS.find(
+    (p) => p.elevation === sunElevation && p.azimuth === sunAzimuth,
+  )
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -298,6 +325,77 @@ function DisplayMenu() {
                   <span className="text-muted-foreground text-xs">{option.detail}</span>
                 </div>
                 {aoEngine === option.id ? (
+                  <Check className="ml-auto h-4 w-4 text-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Globe className="h-4 w-4" />
+            <span>Environment</span>
+            <span className="ml-auto text-muted-foreground text-xs">{activeEnvironment.name}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-56">
+            {ENVIRONMENT_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.id}
+                onSelect={() => useViewer.getState().setEnvironmentMode(option.id)}
+              >
+                <div className="flex flex-col">
+                  <span className="text-foreground">{option.name}</span>
+                  <span className="text-muted-foreground text-xs">{option.detail}</span>
+                </div>
+                {environmentMode === option.id ? (
+                  <Check className="ml-auto h-4 w-4 text-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onSelect={() => {
+                const url = window.prompt('HDRI URL (.hdr / .exr)', useViewer.getState().hdriUrl)
+                if (url?.trim()) {
+                  useViewer.getState().setHdriUrl(url.trim())
+                  useViewer.getState().setEnvironmentMode('hdri')
+                }
+              }}
+            >
+              <Link2 className="h-4 w-4" />
+              <div className="flex flex-col">
+                <span className="text-foreground">Custom HDRI URL…</span>
+                <span className="text-muted-foreground text-xs">Load your own .hdr / .exr</span>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Sunrise className="h-4 w-4" />
+            <span>Sun</span>
+            <span className="ml-auto text-muted-foreground text-xs">
+              {activeSunPreset?.name ?? 'Custom'}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-56">
+            {SUN_PRESETS.map((preset) => (
+              <DropdownMenuItem
+                key={preset.id}
+                onSelect={() => {
+                  useViewer.getState().setSunElevation(preset.elevation)
+                  useViewer.getState().setSunAzimuth(preset.azimuth)
+                }}
+              >
+                <div className="flex flex-col">
+                  <span className="text-foreground">{preset.name}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {preset.elevation}° / {preset.azimuth}° — used by Procedural sky
+                  </span>
+                </div>
+                {activeSunPreset?.id === preset.id ? (
                   <Check className="ml-auto h-4 w-4 text-foreground" />
                 ) : null}
               </DropdownMenuItem>

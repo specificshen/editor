@@ -7,8 +7,12 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { type ColorGrading, DEFAULT_GRADING } from '../lib/color-grading'
 import type { EdgeMode } from '../lib/edge-style'
+import type { EnvironmentMode } from '../lib/environment-backdrop'
+import { DEFAULT_HDRI_URL } from '../lib/hdri'
 import type { ColorPreset, RenderShading } from '../lib/materials'
 import { SCENE_THEME_IDS } from '../lib/scene-themes'
+
+export type { EnvironmentMode }
 
 export type RenderContext = 'editor' | 'viewer'
 export type MetricNotation = 'meters' | 'millimeters'
@@ -99,6 +103,24 @@ type ViewerState = {
 
   grading: ColorGrading
   setGrading: (updates: Partial<ColorGrading>) => void
+
+  /** Visible backdrop + IBL source: theme gradient, procedural Preetham sky,
+   * or a loaded HDRI. See lib/environment-backdrop.ts. */
+  environmentMode: EnvironmentMode
+  setEnvironmentMode: (mode: EnvironmentMode) => void
+  hdriUrl: string
+  setHdriUrl: (url: string) => void
+  /** Sun angles in degrees — drive the procedural-sky backdrop, its IBL bake,
+   * and (in sky mode) the theme's shadow-casting light direction. */
+  sunElevation: number
+  setSunElevation: (elevation: number) => void
+  sunAzimuth: number
+  setSunAzimuth: (azimuth: number) => void
+  /** Bumped when the HDRI backdrop texture finishes loading so the post
+   * pipeline and horizon disc rebuild their node graphs with the texture
+   * (they were built on the gradient fallback). Transient (never persisted). */
+  environmentVersion: number
+  bumpEnvironmentVersion: () => void
 
   unit: 'metric' | 'imperial'
   setUnit: (unit: 'metric' | 'imperial') => void
@@ -211,6 +233,10 @@ type PersistedViewerState = Partial<
     | 'bloom'
     | 'bloomStrength'
     | 'grading'
+    | 'environmentMode'
+    | 'hdriUrl'
+    | 'sunElevation'
+    | 'sunAzimuth'
     | 'unit'
     | 'metricNotation'
     | 'unitExplicit'
@@ -230,6 +256,7 @@ const LEVEL_MODES = ['stacked', 'exploded', 'solo', 'manual'] as const
 const WALL_MODES = ['up', 'cutaway', 'down', 'translucent'] as const
 const TONE_MAPPINGS = ['aces', 'agx', 'neutral'] as const
 const AO_ENGINES = ['ssgi', 'gtao'] as const
+const ENVIRONMENT_MODES = ['gradient', 'hdri', 'sky'] as const
 
 // Countries still on imperial/US customary units: United States, Liberia, Myanmar.
 const IMPERIAL_REGIONS = ['US', 'LR', 'MM']
@@ -360,6 +387,19 @@ function normalizePersistedViewerState(value: unknown): PersistedViewerState {
     bloomStrength:
       typeof state.bloomStrength === 'number' ? Math.min(Math.max(state.bloomStrength, 0), 2) : 0.5,
     grading: normalizeGrading(state.grading),
+    environmentMode: pickString<EnvironmentMode>(
+      state.environmentMode,
+      ENVIRONMENT_MODES,
+      'gradient',
+    ),
+    hdriUrl:
+      typeof state.hdriUrl === 'string' && state.hdriUrl.trim().length > 0
+        ? state.hdriUrl
+        : DEFAULT_HDRI_URL,
+    sunElevation:
+      typeof state.sunElevation === 'number' ? Math.min(Math.max(state.sunElevation, 0), 90) : 40,
+    sunAzimuth:
+      typeof state.sunAzimuth === 'number' ? Math.min(Math.max(state.sunAzimuth, 0), 360) : 45,
     unit: pickString<ViewerState['unit']>(state.unit, UNITS, detectDefaultUnit()),
     metricNotation: pickString<MetricNotation>(state.metricNotation, METRIC_NOTATIONS, 'meters'),
     unitExplicit:
@@ -456,6 +496,19 @@ const useViewer = create<ViewerState>()(
 
       grading: { ...DEFAULT_GRADING },
       setGrading: (updates) => set((state) => ({ grading: { ...state.grading, ...updates } })),
+
+      environmentMode: 'gradient',
+      setEnvironmentMode: (environmentMode) => set({ environmentMode }),
+      hdriUrl: DEFAULT_HDRI_URL,
+      setHdriUrl: (hdriUrl) => set({ hdriUrl }),
+      sunElevation: 40,
+      setSunElevation: (sunElevation) =>
+        set({ sunElevation: Math.min(Math.max(sunElevation, 0), 90) }),
+      sunAzimuth: 45,
+      setSunAzimuth: (sunAzimuth) => set({ sunAzimuth: Math.min(Math.max(sunAzimuth, 0), 360) }),
+      environmentVersion: 0,
+      bumpEnvironmentVersion: () =>
+        set((state) => ({ environmentVersion: state.environmentVersion + 1 })),
 
       unit: detectDefaultUnit(),
       metricNotation: 'meters',
@@ -619,6 +672,10 @@ const useViewer = create<ViewerState>()(
         bloom: state.bloom,
         bloomStrength: state.bloomStrength,
         grading: state.grading,
+        environmentMode: state.environmentMode,
+        hdriUrl: state.hdriUrl,
+        sunElevation: state.sunElevation,
+        sunAzimuth: state.sunAzimuth,
         ...(state.unitExplicit ? { unit: state.unit } : {}),
         metricNotation: state.metricNotation,
         levelMode: state.levelMode,

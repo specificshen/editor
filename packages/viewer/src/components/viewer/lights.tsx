@@ -9,6 +9,7 @@ import type {
 } from 'three/webgpu'
 import * as THREE from 'three/webgpu'
 import { SHADOW_ONLY_LAYER } from '../../lib/layers'
+import { sunDirection } from '../../lib/procedural-sky'
 import { getSceneTheme } from '../../lib/scene-themes'
 import useViewer from '../../store/use-viewer'
 
@@ -78,6 +79,12 @@ export function Lights() {
   const sceneTheme = useViewer((state) => state.sceneTheme)
   const theme = getSceneTheme(sceneTheme)
   const shadows = useViewer((state) => state.shadows)
+  const environmentMode = useViewer((state) => state.environmentMode)
+  const sunElevation = useViewer((state) => state.sunElevation)
+  const sunAzimuth = useViewer((state) => state.sunAzimuth)
+  // The theme's first shadow-casting light doubles as the sun in
+  // procedural-sky mode (its direction gets overridden below).
+  const sunLightIndex = theme.lights.findIndex((light) => light.castShadow)
 
   const lightRefs = useRef<Array<DirectionalLight | null>>([])
   const shadowCamera = useRef<OrthographicCamera>(null)
@@ -165,6 +172,12 @@ export function Lights() {
         if (!(config?.castShadow && light)) continue
         const [ox, oy, oz] = config.position
         const dir = shadowDir.current.set(ox, oy, oz)
+        // In procedural-sky mode the shadow-casting light IS the sun: its
+        // direction follows the user-facing sun angles so shadows, the sky's
+        // sun disc and the baked sky IBL all agree.
+        if (environmentMode === 'sky' && config.castShadow && index === sunLightIndex) {
+          dir.copy(sunDirection(sunElevation, sunAzimuth))
+        }
         if (dir.lengthSq() === 0) dir.set(0, 1, 0)
         dir.normalize().multiplyScalar(distance)
         light.position.set(focus.x + dir.x, focus.y + dir.y, focus.z + dir.z)
