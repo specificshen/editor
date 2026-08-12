@@ -6,6 +6,7 @@ import {
   type EdgeMode,
   getSceneTheme,
   SCENE_THEMES,
+  type ToneMapping,
   useViewer,
 } from '@pascal-app/viewer'
 import {
@@ -24,6 +25,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Square,
+  SunMedium,
   SwatchBook,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
@@ -77,6 +79,12 @@ const EDGE_OPTIONS = [
   { id: 'soft', name: 'Soft', detail: 'Faint outline of major creases' },
   { id: 'strong', name: 'Strong', detail: 'Crisp, opaque edge lines' },
 ] as const satisfies readonly { id: EdgeMode; name: string; detail: string }[]
+
+const TONE_MAPPING_OPTIONS = [
+  { id: 'aces', name: 'ACES Filmic', detail: 'Punchy filmic highlights' },
+  { id: 'agx', name: 'AgX', detail: 'Softer rolloff, keeps saturated brights' },
+  { id: 'neutral', name: 'Neutral', detail: 'Minimal, true-to-source color' },
+] as const satisfies readonly { id: ToneMapping; name: string; detail: string }[]
 
 // Keep the dropdown open when flipping an in-place toggle row.
 const keepOpen = (event: Event, fn: () => void) => {
@@ -148,11 +156,15 @@ function DisplayMenu() {
   const shading = useViewer((s) => s.shading)
   const textures = useViewer((s) => s.textures)
   const shadows = useViewer((s) => s.shadows)
+  const bloom = useViewer((s) => s.bloom)
+  const toneMapping = useViewer((s) => s.toneMapping)
   const sceneTheme = useViewer((s) => s.sceneTheme)
   const edges = useViewer((s) => s.edges)
   const activeShading = SHADING_OPTIONS.find((o) => o.id === shading) ?? SHADING_OPTIONS[0]
   const activeTheme = getSceneTheme(sceneTheme)
   const activeEdges = EDGE_OPTIONS.find((o) => o.id === edges) ?? EDGE_OPTIONS[0]
+  const activeToneMapping =
+    TONE_MAPPING_OPTIONS.find((o) => o.id === toneMapping) ?? TONE_MAPPING_OPTIONS[0]
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -173,6 +185,13 @@ function DisplayMenu() {
           <Contrast className="h-4 w-4" />
           <span>Shadows</span>
           <span className="ml-auto text-muted-foreground text-xs">{shadows ? 'On' : 'Off'}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onSelect={(e) => keepOpen(e, () => useViewer.getState().setBloom(!bloom))}
+        >
+          <Sparkles className="h-4 w-4" />
+          <span>Bloom</span>
+          <span className="ml-auto text-muted-foreground text-xs">{bloom ? 'On' : 'Off'}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={(e) =>
@@ -226,6 +245,30 @@ function DisplayMenu() {
                 </DropdownMenuItem>
               )
             })}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <SunMedium className="h-4 w-4" />
+            <span>Tone mapping</span>
+            <span className="ml-auto text-muted-foreground text-xs">{activeToneMapping.name}</span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-56">
+            {TONE_MAPPING_OPTIONS.map((option) => (
+              <DropdownMenuItem
+                key={option.id}
+                onSelect={() => useViewer.getState().setToneMapping(option.id)}
+              >
+                <div className="flex flex-col">
+                  <span className="text-foreground">{option.name}</span>
+                  <span className="text-muted-foreground text-xs">{option.detail}</span>
+                </div>
+                {toneMapping === option.id ? (
+                  <Check className="ml-auto h-4 w-4 text-foreground" />
+                ) : null}
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 

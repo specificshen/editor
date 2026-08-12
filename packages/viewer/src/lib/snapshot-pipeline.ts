@@ -12,16 +12,16 @@ import {
   output,
   pass,
   sample,
-  saturation,
   screenUV,
   smoothstep,
   uniform,
-  vec3,
   vec4,
 } from 'three/tsl'
 import { RenderPipeline, RenderTarget, type WebGPURenderer } from 'three/webgpu'
-import { GRADE_PARAMS, SSGI_PARAMS } from '../components/viewer/post-processing'
+import { SSGI_PARAMS } from '../components/viewer/post-processing'
+import useViewer from '../store/use-viewer'
 import { backdropGradient, deepSkyColor, horizonHazeColor } from './backdrop'
+import { applyColorGrading, DEFAULT_GRADING } from './color-grading'
 import { type EdgeMode, edgeColorFor, edgeOpacityScaleFor } from './edge-style'
 import { inkedEdges } from './ink-edges'
 import { getSceneTheme } from './scene-themes'
@@ -109,6 +109,13 @@ export async function createSnapshotPipeline({
     const bgCamWorldUniform = uniform(new Matrix4())
     const bgMixUniform = uniform(1)
     const gradeMixUniform = uniform(0)
+    // Grade values are uniforms (same live-update pattern as the viewport),
+    // fed from useViewer in applyEnvironment so captures match the canvas.
+    const gradeContrastUniform = uniform(DEFAULT_GRADING.contrast)
+    const gradeSaturationUniform = uniform(DEFAULT_GRADING.saturation)
+    const gradeWhiteBalanceUniform = uniform(DEFAULT_GRADING.whiteBalance)
+    const gradeHighlightsUniform = uniform(DEFAULT_GRADING.highlights)
+    const gradeShadowsUniform = uniform(DEFAULT_GRADING.shadows)
     const inkMixUniform = uniform(0)
     const inkColorUniform = uniform(new Color('#1a1d24'))
     const inkOpacityUniform = uniform(0.5)
@@ -178,7 +185,13 @@ export async function createSnapshotPipeline({
     })
     const ungradedSceneRgb = mix(aoRgb, inkedRgb, inkMixUniform)
     const gradeRgb = (rgb: any) =>
-      saturation(rgb.div(0.18).pow(vec3(GRADE_PARAMS.contrast)).mul(0.18), GRADE_PARAMS.saturation)
+      applyColorGrading(rgb, {
+        contrast: gradeContrastUniform,
+        saturation: gradeSaturationUniform,
+        whiteBalance: gradeWhiteBalanceUniform,
+        highlights: gradeHighlightsUniform,
+        shadows: gradeShadowsUniform,
+      })
     const sceneRgb = mix(ungradedSceneRgb, gradeRgb(ungradedSceneRgb), gradeMixUniform)
 
     // Per-pixel world ray from the capture camera → sky gradient above the
@@ -231,6 +244,12 @@ export async function createSnapshotPipeline({
         )
         bgMixUniform.value = transparent ? 0 : 1
         gradeMixUniform.value = grade ? 1 : 0
+        const grading = useViewer.getState().grading
+        gradeContrastUniform.value = grading.contrast
+        gradeSaturationUniform.value = grading.saturation
+        gradeWhiteBalanceUniform.value = grading.whiteBalance
+        gradeHighlightsUniform.value = grading.highlights
+        gradeShadowsUniform.value = grading.shadows
 
         // The capture camera never joins the scene graph, so its matrixWorld
         // is only refreshed by the render itself — too late for the backdrop

@@ -210,15 +210,23 @@ function GPUDeviceWatcher() {
   return null
 }
 
+const TONE_MAPPING_CONSTANTS = {
+  aces: THREE.ACESFilmicToneMapping,
+  agx: THREE.AgXToneMapping,
+  neutral: THREE.NeutralToneMapping,
+} as const
+
 function ToneMappingExposure() {
   const sceneTheme = useViewer((state) => state.sceneTheme)
+  const toneMapping = useViewer((state) => state.toneMapping)
   const gl = useThree((state) => state.gl)
   const invalidate = useThree((state) => state.invalidate)
 
   useEffect(() => {
+    gl.toneMapping = TONE_MAPPING_CONSTANTS[toneMapping]
     gl.toneMappingExposure = getSceneTheme(sceneTheme).toneMappingExposure
     invalidate()
-  }, [gl, invalidate, sceneTheme])
+  }, [gl, invalidate, sceneTheme, toneMapping])
 
   return null
 }
@@ -520,7 +528,7 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer(
                   ...backendParameters,
                   alpha: true,
                 })
-                renderer.toneMapping = THREE.ACESFilmicToneMapping
+                renderer.toneMapping = TONE_MAPPING_CONSTANTS[useViewer.getState().toneMapping]
                 renderer.toneMappingExposure = getSceneTheme(
                   useViewer.getState().sceneTheme,
                 ).toneMappingExposure

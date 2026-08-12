@@ -5,12 +5,14 @@ import type { Object3D } from 'three'
 
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { type ColorGrading, DEFAULT_GRADING } from '../lib/color-grading'
 import type { EdgeMode } from '../lib/edge-style'
 import type { ColorPreset, RenderShading } from '../lib/materials'
 import { SCENE_THEME_IDS } from '../lib/scene-themes'
 
 export type RenderContext = 'editor' | 'viewer'
 export type MetricNotation = 'meters' | 'millimeters'
+export type ToneMapping = 'aces' | 'agx' | 'neutral'
 export type WallMode = 'up' | 'cutaway' | 'down' | 'translucent'
 
 type SelectionPath = {
@@ -82,6 +84,17 @@ type ViewerState = {
 
   shadows: boolean
   setShadows: (shadows: boolean) => void
+
+  toneMapping: ToneMapping
+  setToneMapping: (toneMapping: ToneMapping) => void
+
+  bloom: boolean
+  setBloom: (enabled: boolean) => void
+  bloomStrength: number
+  setBloomStrength: (strength: number) => void
+
+  grading: ColorGrading
+  setGrading: (updates: Partial<ColorGrading>) => void
 
   unit: 'metric' | 'imperial'
   setUnit: (unit: 'metric' | 'imperial') => void
@@ -189,6 +202,10 @@ type PersistedViewerState = Partial<
     | 'colorPreset'
     | 'edges'
     | 'shadows'
+    | 'toneMapping'
+    | 'bloom'
+    | 'bloomStrength'
+    | 'grading'
     | 'unit'
     | 'metricNotation'
     | 'unitExplicit'
@@ -206,6 +223,7 @@ const UNITS = ['metric', 'imperial'] as const
 const METRIC_NOTATIONS = ['meters', 'millimeters'] as const
 const LEVEL_MODES = ['stacked', 'exploded', 'solo', 'manual'] as const
 const WALL_MODES = ['up', 'cutaway', 'down', 'translucent'] as const
+const TONE_MAPPINGS = ['aces', 'agx', 'neutral'] as const
 
 // Countries still on imperial/US customary units: United States, Liberia, Myanmar.
 const IMPERIAL_REGIONS = ['US', 'LR', 'MM']
@@ -298,6 +316,22 @@ function normalizeProjectPreferences(value: unknown): ViewerState['projectPrefer
   return next
 }
 
+function normalizeGrading(value: unknown): ColorGrading {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { ...DEFAULT_GRADING }
+  const record = value as Record<string, unknown>
+  const pick = (key: keyof ColorGrading) =>
+    typeof record[key] === 'number'
+      ? Math.min(Math.max(record[key] as number, -1), 1)
+      : DEFAULT_GRADING[key]
+  return {
+    contrast: pick('contrast'),
+    saturation: pick('saturation'),
+    whiteBalance: pick('whiteBalance'),
+    highlights: pick('highlights'),
+    shadows: pick('shadows'),
+  }
+}
+
 function normalizePersistedViewerState(value: unknown): PersistedViewerState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const state = value as Record<string, unknown>
@@ -314,6 +348,11 @@ function normalizePersistedViewerState(value: unknown): PersistedViewerState {
     colorPreset: pickString<ColorPreset>(state.colorPreset, COLOR_PRESETS, 'clay'),
     edges: pickString<EdgeMode>(state.edges, EDGE_MODES, 'soft'),
     shadows: typeof state.shadows === 'boolean' ? state.shadows : true,
+    toneMapping: pickString<ToneMapping>(state.toneMapping, TONE_MAPPINGS, 'aces'),
+    bloom: typeof state.bloom === 'boolean' ? state.bloom : false,
+    bloomStrength:
+      typeof state.bloomStrength === 'number' ? Math.min(Math.max(state.bloomStrength, 0), 2) : 0.5,
+    grading: normalizeGrading(state.grading),
     unit: pickString<ViewerState['unit']>(state.unit, UNITS, detectDefaultUnit()),
     metricNotation: pickString<MetricNotation>(state.metricNotation, METRIC_NOTATIONS, 'meters'),
     unitExplicit:
@@ -396,6 +435,17 @@ const useViewer = create<ViewerState>()(
 
       shadows: true,
       setShadows: (shadows) => set({ shadows }),
+
+      toneMapping: 'aces',
+      setToneMapping: (toneMapping) => set({ toneMapping }),
+
+      bloom: false,
+      setBloom: (bloom) => set({ bloom }),
+      bloomStrength: 0.5,
+      setBloomStrength: (bloomStrength) => set({ bloomStrength }),
+
+      grading: { ...DEFAULT_GRADING },
+      setGrading: (updates) => set((state) => ({ grading: { ...state.grading, ...updates } })),
 
       unit: detectDefaultUnit(),
       metricNotation: 'meters',
@@ -554,6 +604,10 @@ const useViewer = create<ViewerState>()(
         colorPreset: state.colorPreset,
         edges: state.edges,
         shadows: state.shadows,
+        toneMapping: state.toneMapping,
+        bloom: state.bloom,
+        bloomStrength: state.bloomStrength,
+        grading: state.grading,
         ...(state.unitExplicit ? { unit: state.unit } : {}),
         metricNotation: state.metricNotation,
         levelMode: state.levelMode,

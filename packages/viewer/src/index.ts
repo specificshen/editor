@@ -166,6 +166,7 @@ export {
   applyCountryUnitDefault,
   default as useViewer,
   type MetricNotation,
+  type ToneMapping,
   type WallMode,
 } from './store/use-viewer'
 export { CeilingSystem } from './systems/ceiling/ceiling-system'

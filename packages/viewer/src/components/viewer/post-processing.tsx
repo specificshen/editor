@@ -1,6 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Color, Layers, Matrix4, type Object3D, Scene, UnsignedByteType } from 'three'
+import { bloom } from 'three/addons/tsl/display/BloomNode.js'
 import { ssgi } from 'three/addons/tsl/display/SSGINode.js'
 import { denoise } from 'three/examples/jsm/tsl/display/DenoiseNode.js'
 import {
@@ -16,16 +17,15 @@ import {
   premultiplyAlpha,
   renderOutput,
   sample,
-  saturation,
   screenUV,
   smoothstep,
   time,
   uniform,
-  vec3,
   vec4,
 } from 'three/tsl'
 import { RenderPipeline, type WebGPURenderer } from 'three/webgpu'
 import { backdropGradient, deepSkyColor, horizonHazeColor } from '../../lib/backdrop'
+import { applyColorGrading } from '../../lib/color-grading'
 import { edgeColorFor, edgeOpacityScaleFor } from '../../lib/edge-style'
 import { PERF_OVERLAY_ENABLED, pushGpuSample } from '../../lib/gpu-perf'
 import { inkedEdges } from '../../lib/ink-edges'
@@ -35,12 +35,18 @@ import { getSceneTheme } from '../../lib/scene-themes'
 import { packNormalToRGB, unpackRGBToNormal } from '../../lib/tsl-compat'
 import useViewer from '../../store/use-viewer'
 
-// Scene-referred grade applied before the output tone mapping (AgX). AgX rolls
-// highlights off gently but reads flat on its own; a mild mid-gray-pivot
-// contrast + saturation lift restores the punch. Rendered shading only.
-export const GRADE_PARAMS = {
-  contrast: 1.05,
-  saturation: 1.1,
+// Scene-referred grade (lib/color-grading.ts) applied before the output tone
+// mapping: tone mapping rolls highlights off gently but reads flat on its own,
+// so a mild contrast + saturation lift restores the punch. Rendered shading
+// only. Values flow through uniforms, so tweaking them never rebuilds the
+// pipeline.
+
+// Bloom shape is fixed; the user-facing strength lives in useViewer. The high
+// threshold keeps the glow on genuinely bright HDR pixels (sun, speculars)
+// instead of blooming the whole sky gradient.
+const BLOOM_PARAMS = {
+  radius: 0.2,
+  threshold: 0.9,
 }
 
 // SSGI Parameters - adjust these to fine-tune global illumination and ambient occlusion
@@ -200,6 +206,15 @@ const PostProcessingPasses = ({
   const inkColorUniform = useRef(uniform(new Color(edgeColorFor(initBg))))
   const inkOpacityScaleUniform = useRef(uniform(edgeOpacityScaleFor(initBg)))
 
+  // Grade values as uniforms: tweaking them mid-session must not rebuild the
+  // pipeline (same rule as the hover-style uniforms below).
+  const initGrading = useViewer.getState().grading
+  const gradeContrastUniform = useRef(uniform(initGrading.contrast))
+  const gradeSaturationUniform = useRef(uniform(initGrading.saturation))
+  const gradeWhiteBalanceUniform = useRef(uniform(initGrading.whiteBalance))
+  const gradeHighlightsUniform = useRef(uniform(initGrading.highlights))
+  const gradeShadowsUniform = useRef(uniform(initGrading.shadows))
+
   const zoneLayers = useMemo(() => {
     const l = new Layers()
     l.enable(ZONE_LAYER)
@@ -237,6 +252,10 @@ const PostProcessingPasses = ({
   const edges = useViewer((s) => s.edges)
   const inkOpacityOverride = useViewer((s) => s.inkOpacity)
   const transparentBackground = useViewer((s) => s.transparentBackground)
+  const bloomEnabled = useViewer((s) => s.bloom)
+  const bloomStrength = useViewer((s) => s.bloomStrength)
+  const toneMapping = useViewer((s) => s.toneMapping)
+  const grading = useViewer((s) => s.grading)
   const lastProjectIdRef = useRef(projectId)
 
   // Bump this to force a pipeline rebuild (used by retry logic)
@@ -287,6 +306,17 @@ const PostProcessingPasses = ({
     hoverVisibleColor,
     invalidate,
   ])
+
+  // Grade values ride uniforms (see the build effect below) — push changes
+  // straight into them and redraw, never a pipeline rebuild.
+  useEffect(() => {
+    gradeContrastUniform.current.value = grading.contrast
+    gradeSaturationUniform.current.value = grading.saturation
+    gradeWhiteBalanceUniform.current.value = grading.whiteBalance
+    gradeHighlightsUniform.current.value = grading.highlights
+    gradeShadowsUniform.current.value = grading.shadows
+    invalidate()
+  }, [grading, invalidate])
 
   // Build / rebuild the post-processing pipeline
   useEffect(() => {
@@ -349,6 +379,8 @@ const PostProcessingPasses = ({
       ssgi: ssgiEnabled,
       denoise: denoiseEnabled,
       outline: outlineEnabled,
+      bloom: bloomEnabled,
+      toneMapping,
       perfDisable,
       projectId,
       shading,
@@ -506,16 +538,34 @@ const PostProcessingPasses = ({
         )
       }
 
-      // Scene-referred grade (contrast around mid-gray + saturation) before the
-      // pipeline's output tone mapping. Kept out of solid/schematic shading so
-      // the flat presets stay exact. The same transform is applied to the
-      // backdrop below so geometry that fades to the background colour (the
-      // horizon disc) matches it exactly.
-      const gradeRgb = (rgb: any) =>
-        saturation(
-          rgb.div(0.18).pow(vec3(GRADE_PARAMS.contrast)).mul(0.18),
-          GRADE_PARAMS.saturation,
+      // Bloom before the grade (prism's AO → bloom → grade order) so the grade
+      // shapes the bloom-carrying highlights too. Skipped on the transparent
+      // path: its premultiplied compositing would smear the glow past the
+      // alpha edge.
+      if (shading === 'rendered' && bloomEnabled && !transparentBackground) {
+        sceneColor = vec4(
+          add(
+            sceneColor.rgb,
+            bloom(sceneColor, bloomStrength, BLOOM_PARAMS.radius, BLOOM_PARAMS.threshold).rgb,
+          ),
+          sceneColor.a,
         )
+      }
+
+      // Scene-referred grade (saturation → contrast → white balance →
+      // highlight/shadow split, lib/color-grading.ts) before the pipeline's
+      // output tone mapping. Kept out of solid/schematic shading so the flat
+      // presets stay exact. The same transform is applied to the backdrop
+      // below so geometry that fades to the background colour (the horizon
+      // disc) matches it exactly.
+      const gradeRgb = (rgb: any) =>
+        applyColorGrading(rgb, {
+          contrast: gradeContrastUniform.current,
+          saturation: gradeSaturationUniform.current,
+          whiteBalance: gradeWhiteBalanceUniform.current,
+          highlights: gradeHighlightsUniform.current,
+          shadows: gradeShadowsUniform.current,
+        })
       if (shading === 'rendered') {
         sceneColor = vec4(gradeRgb(sceneColor.rgb), sceneColor.a)
       }
@@ -633,9 +683,11 @@ const PostProcessingPasses = ({
   }, [
     // NOTE: hoverHighlightMode intentionally excluded — the hover style is
     // pushed to uniforms in a separate effect, so a hover must NOT rebuild the
-    // whole pipeline. The uniform refs below are stable (useMemo), so they
-    // never trigger a rebuild either.
+    // whole pipeline. `grading` follows the same uniform rule. The uniform
+    // refs below are stable (useMemo), so they never trigger a rebuild either.
     camera,
+    bloomEnabled,
+    bloomStrength,
     disablePostFx,
     hoverHiddenColor,
     hoverPulseMix,
@@ -648,6 +700,7 @@ const PostProcessingPasses = ({
     renderer,
     scene,
     shading,
+    toneMapping,
     transparentBackground,
     size.height,
     size.width,
