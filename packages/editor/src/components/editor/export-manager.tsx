@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js'
 import { exportSceneToGlb, nextFrames, prepareSceneForExport } from '../../lib/glb-export'
+import useEditor from '../../store/use-editor'
 
 // prepareSceneForExport neutralises container meshes (door/window hitbox roots,
 // material-less renderables) with an attribute-less geometry — GLTFExporter
@@ -56,8 +57,24 @@ export function ExportManager() {
 
         if (format === 'glb') {
           const buffer = await exportSceneToGlb(sceneGroup, useScene.getState().nodes)
-          const blob = new Blob([buffer], { type: 'model/gltf-binary' })
-          downloadBlob(blob, `model_${date}.glb`)
+          const compression = useEditor.getState().glbCompression
+          if (compression === 'none') {
+            const blob = new Blob([buffer], { type: 'model/gltf-binary' })
+            downloadBlob(blob, `model_${date}.glb`)
+            return
+          }
+          try {
+            const { optimizeGlb } = await import('../../lib/glb-optimize')
+            const optimized = await optimizeGlb(buffer, compression)
+            const blob = new Blob([optimized as BlobPart], { type: 'model/gltf-binary' })
+            downloadBlob(blob, `model_${date}_${compression}.glb`)
+          } catch (error) {
+            // Never lose the export to a compression failure (wasm fetch,
+            // OOM on huge scenes) — fall back to the raw GLB.
+            console.error('[export] GLB optimization failed; downloading uncompressed', error)
+            const blob = new Blob([buffer], { type: 'model/gltf-binary' })
+            downloadBlob(blob, `model_${date}.glb`)
+          }
           return
         }
 

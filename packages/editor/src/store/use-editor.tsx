@@ -46,6 +46,7 @@ import {
   continuationContextOf,
   nextContinuation,
 } from '../lib/continuation'
+import type { GlbCompression } from '../lib/glb-optimize'
 import {
   type ActivePaintMaterial,
   type PaintableMaterialTarget,
@@ -409,6 +410,9 @@ type EditorState = {
    */
   terrainSampling: boolean
   setTerrainSampling: (sampling: boolean) => void
+  /** Post-processing applied to exported GLBs. Editor-only preference. */
+  glbCompression: GlbCompression
+  setGlbCompression: (compression: GlbCompression) => void
   // What the cursor is over in paint mode: the scopes it offers + labels for the
   // HUD chip. `null` when not over a paintable surface (drives the "hover a
   // surface" hint). Set by the selection-manager paint hover; not persisted.
@@ -1188,6 +1192,8 @@ const useEditor = create<EditorState>()(
         set({ terrainFlattenTarget: metres, terrainSampling: false }),
       terrainSampling: false,
       setTerrainSampling: (sampling) => set({ terrainSampling: sampling }),
+      glbCompression: 'quantize',
+      setGlbCompression: (compression) => set({ glbCompression: compression }),
       canFindNode: false,
       setCanFindNode: (canFind) => set({ canFindNode: canFind }),
       selectedReferenceId: null,

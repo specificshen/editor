@@ -16,6 +16,7 @@ import {
   useState,
 } from 'react'
 import { exportFloorplanPdf } from '../../../../../lib/floorplan/floorplan-export'
+import type { GlbCompression } from '../../../../../lib/glb-optimize'
 import { Button } from './../../../../../components/ui/primitives/button'
 import {
   Dialog,
@@ -52,6 +53,12 @@ type SceneGraphValue = {
   roots: SceneGraphNode[]
   detachedNodes?: SceneGraphNode[]
 }
+
+const GLB_COMPRESSION_OPTIONS = [
+  { id: 'none', label: 'Original', hint: 'Best compatibility, largest file' },
+  { id: 'quantize', label: 'Quantized', hint: 'Opens anywhere, ~40% of the original size' },
+  { id: 'draco', label: 'Draco', hint: 'Smallest file; viewer must support Draco decoding' },
+] as const satisfies readonly { id: GlbCompression; label: string; hint: string }[]
 
 const isSceneNode = (value: unknown): value is SceneNode => {
   return (
@@ -191,6 +198,7 @@ export function SettingsPanel({
   const clearScene = useScene((state) => state.clearScene)
   const resetSelection = useViewer((state) => state.resetSelection)
   const exportScene = useViewer((state) => state.exportScene)
+  const glbCompression = useEditor((state) => state.glbCompression)
   const shadows = useViewer((state) => state.shadows)
   const setPhase = useEditor((state) => state.setPhase)
   const floorplanMode = useFloorplanMode((state) => state.mode)
@@ -371,6 +379,32 @@ export function SettingsPanel({
       {/* Export Section */}
       <div className="space-y-4">
         <label className="font-medium text-muted-foreground text-xs uppercase">Export</label>
+
+        <div className="space-y-2">
+          <div className="font-medium text-muted-foreground text-xs">GLB compression</div>
+          <div className="flex gap-1">
+            {GLB_COMPRESSION_OPTIONS.map((option) => {
+              const isActive = glbCompression === option.id
+              return (
+                <button
+                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs transition-colors ${
+                    isActive
+                      ? 'border-primary bg-primary/10 font-medium'
+                      : 'border-border/50 text-muted-foreground hover:bg-accent'
+                  }`}
+                  key={option.id}
+                  onClick={() => useEditor.getState().setGlbCompression(option.id)}
+                  type="button"
+                >
+                  {option.label}
+                </button>
+              )
+            })}
+          </div>
+          <div className="text-muted-foreground text-xs">
+            {GLB_COMPRESSION_OPTIONS.find((option) => option.id === glbCompression)?.hint}
+          </div>
+        </div>
 
         <div className="space-y-2">
           <div className="font-medium text-muted-foreground text-xs">3D model</div>
