@@ -4,6 +4,8 @@ import { emitter } from '@pascal-app/core'
 import {
   type AoEngine,
   CLAY_PALETTE,
+  type ColorGrading,
+  DEFAULT_GRADING,
   type EdgeMode,
   type EnvironmentMode,
   getSceneTheme,
@@ -27,6 +29,7 @@ import {
   Palette,
   PenLine,
   SlidersHorizontal,
+  SlidersVertical,
   Sparkles,
   Square,
   SunDim,
@@ -36,6 +39,7 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { ActionButton } from '../ui/action-menu/action-button'
+import { SliderControl } from '../ui/controls/slider-control'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -112,6 +116,16 @@ const SUN_PRESETS = [
   { id: 'sunset', name: 'Sunset', elevation: 8, azimuth: 285 },
 ] as const
 
+// Scene-referred color grading, applied before tone mapping. Deltas in
+// [-1, 1]; the store default is DEFAULT_GRADING.
+const GRADING_FIELDS = [
+  { id: 'contrast', name: 'Contrast' },
+  { id: 'saturation', name: 'Saturation' },
+  { id: 'whiteBalance', name: 'White balance' },
+  { id: 'highlights', name: 'Highlights' },
+  { id: 'shadows', name: 'Shadows' },
+] as const satisfies readonly { id: keyof ColorGrading; name: string }[]
+
 // Keep the dropdown open when flipping an in-place toggle row.
 const keepOpen = (event: Event, fn: () => void) => {
   event.preventDefault()
@@ -184,6 +198,8 @@ export function DisplayMenu() {
   const shadows = useViewer((s) => s.shadows)
   const bloom = useViewer((s) => s.bloom)
   const toneMapping = useViewer((s) => s.toneMapping)
+  const grading = useViewer((s) => s.grading)
+  const isDefaultGrading = GRADING_FIELDS.every((f) => grading[f.id] === DEFAULT_GRADING[f.id])
   const sceneTheme = useViewer((s) => s.sceneTheme)
   const edges = useViewer((s) => s.edges)
   const activeShading = SHADING_OPTIONS.find((o) => o.id === shading) ?? SHADING_OPTIONS[0]
@@ -305,6 +321,37 @@ export function DisplayMenu() {
                 ) : null}
               </DropdownMenuItem>
             ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <SlidersVertical className="h-4 w-4" />
+            <span>Grading</span>
+            <span className="ml-auto text-muted-foreground text-xs">
+              {isDefaultGrading ? 'Default' : 'Adjusted'}
+            </span>
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="min-w-64">
+            {GRADING_FIELDS.map((field) => (
+              <SliderControl
+                key={field.id}
+                label={field.name}
+                max={1}
+                min={-1}
+                onChange={(value) => useViewer.getState().setGrading({ [field.id]: value })}
+                precision={2}
+                step={0.01}
+                value={grading[field.id]}
+              />
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={isDefaultGrading}
+              onSelect={() => useViewer.getState().setGrading({ ...DEFAULT_GRADING })}
+            >
+              <span>Reset to default</span>
+            </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
 

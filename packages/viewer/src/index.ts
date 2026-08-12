@@ -65,6 +65,7 @@ export {
   createCoatedGlassMaterial,
   isCoatedGlassMaterial,
 } from './lib/coated-glass'
+export { type ColorGrading, DEFAULT_GRADING } from './lib/color-grading'
 // CSG primitives — used by chimney's roof-trim and other kinds whose
 // geometry subtracts pieces against their host. Lives in viewer
 // because three-bvh-csg / three-mesh-bvh are viewer-only deps.
