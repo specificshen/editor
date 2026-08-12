@@ -66,6 +66,7 @@ export function ItemCatalog({
       {filteredItems.map((item, index) => {
         const isSelected = selectedItem?.src === item?.src
         const snapTarget = resolveAssetSnapTarget(item?.attachTo)
+        const thumbnailUrl = resolveCdnUrl(item.thumbnail) ?? undefined
         return (
           <button
             className={cn(
@@ -87,12 +88,16 @@ export function ItemCatalog({
             type="button"
           >
             <div className="relative aspect-square w-full overflow-hidden rounded-lg">
-              <img
-                alt={item.name}
-                className="h-full w-full object-cover"
-                loading="eager"
-                src={resolveCdnUrl(item.thumbnail) || ''}
-              />
+              {thumbnailUrl ? (
+                <img
+                  alt={item.name}
+                  className="h-full w-full object-cover"
+                  loading="eager"
+                  src={thumbnailUrl}
+                />
+              ) : (
+                <div className="h-full w-full bg-sidebar-accent" />
+              )}
               {snapTarget && (
                 <SnapTargetBadge className="absolute right-1 bottom-1" target={snapTarget} />
               )}
